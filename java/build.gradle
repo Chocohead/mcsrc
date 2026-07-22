@@ -13,6 +13,7 @@ dependencies {
     api libs.asm.util
     api libs.mapping.io
     api libs.mapping.io.extras
+    api libs.primitive.collections
     api libs.teavm.core
     testImplementation libs.teavm.jso
 }
@@ -56,7 +57,8 @@ tasks.register('dummy4Jar', Jar) {
 
 teavm {
     all {
-        mainClass = "mcsrc.Indexer"
+        //mainClass = "mcsrc.Indexer"
+        mainClass = "mcsrc.remap.MarshallingWorker"
     }
     js {
         moduleType = org.teavm.gradle.api.JSModuleType.ES2015
