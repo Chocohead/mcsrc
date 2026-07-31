@@ -25,7 +25,7 @@ import net.fabricmc.mappingio.tree.MappingTree.MethodVarMapping;
 
 import mcsrc.Indexer;
 
-public class MarshallingWorker extends Indexer {
+public class MarshallingWorker {
 	public static String getMemberID(boolean method, String name, String desc) {
 		return method ? getMethodID(name, desc) : getFieldID(name, desc);
 	}
@@ -71,7 +71,7 @@ public class MarshallingWorker extends Indexer {
 		Utils.forEach(classes, (node, name, map) -> {
 			ClassInstance parent = map.get(JSString.valueOf(node.getSuperName()));
 
-			if (parent != null) {
+			if (!Utils.isNullish(parent)) {
 				node.getParents().add(parent);
 				parent.getChildren().add(node);
 			}
@@ -79,7 +79,7 @@ public class MarshallingWorker extends Indexer {
 			for (int i = 0; i < node.getInterfaces().getLength(); i++) {
 				parent = map.get(node.getInterfaces().get(i));
 
-				if (parent != null) {
+				if (!Utils.isNullish(parent)) {
 					node.getParents().add(parent);
 					parent.getChildren().add(node);
 				}
@@ -97,7 +97,7 @@ public class MarshallingWorker extends Indexer {
 			String owner = clazz.getName(official);
 
 			ClassInstance cls = classes.get(JSString.valueOf(owner));
-			if (cls == null) continue; //Missing
+			if (Utils.isNullish(cls)) continue; //Missing
 			cls.setNewName(clazz.getName(named));
 
 			for (FieldMapping field : clazz.getFields()) {
@@ -107,7 +107,7 @@ public class MarshallingWorker extends Indexer {
 			for (MethodMapping method : clazz.getMethods()) {
 				ClassMember member = propagate(visitedUp, visitedDown, cls, true, method.getName(official), method.getDesc(official), method.getName(named));
 
-				if (member != null) {//May be missing
+				if (!Utils.isNullish(member)) {//May be missing
 					for (MethodArgMapping arg : method.getArgs()) {
 						member.getArgs().set(JSNumber.valueOf(arg.getLvIndex()), JSString.valueOf(arg.getName(named)));
 					}
@@ -131,7 +131,7 @@ public class MarshallingWorker extends Indexer {
 		String memberID = getMemberID(method, name, desc);
 		ClassMember member = cls.getMembers().get(JSString.valueOf(memberID));
 
-		if (member != null && !name.equals(newName)) {
+		if (!Utils.isNullish(member) && !name.equals(newName)) {
 			visitedUp.add(cls);
 			visitedDown.add(cls);
 			boolean isVirtual = member.isVirtual();
@@ -155,7 +155,7 @@ public class MarshallingWorker extends Indexer {
 			Direction dir, boolean isVirtual, boolean first) {
 		ClassMember member = cls.getMembers().get(JSString.valueOf(memberID));
 
-		if (member != null) {
+		if (!Utils.isNullish(member)) {
 			if (!first && !isVirtual) {
 				return;
 			}
@@ -169,7 +169,7 @@ public class MarshallingWorker extends Indexer {
 			}
 		}
 
-		if (dir == Direction.ANY || dir == Direction.UP || isVirtual && member != null && member.isVirtual()) {
+		if (dir == Direction.ANY || dir == Direction.UP || isVirtual && !Utils.isNullish(member) && member.isVirtual()) {
 			cls.getParents().forEach(node -> {
 				if (didAdd(visitedUp, node)) {
 					propagate(visitedUp, visitedDown, node, method, memberID, newName, Direction.UP, isVirtual, false);
@@ -177,7 +177,7 @@ public class MarshallingWorker extends Indexer {
 			});
 		}
 
-		if (dir == Direction.ANY || dir == Direction.DOWN || isVirtual && member != null && member.isVirtual()) {
+		if (dir == Direction.ANY || dir == Direction.DOWN || isVirtual && !Utils.isNullish(member) && member.isVirtual()) {
 			cls.getChildren().forEach(node -> {
 				if (didAdd(visitedDown, node)) {
 					propagate(visitedUp, visitedDown, node, method, memberID, newName, Direction.DOWN, isVirtual, false);
@@ -188,7 +188,7 @@ public class MarshallingWorker extends Indexer {
 
 
 	@JSExport
-    public static IndexedClassInstance index2(ArrayBuffer arrayBuffer) {
+	public static IndexedClassInstance index2(ArrayBuffer arrayBuffer) {
 		return RemapWorker.index2(arrayBuffer);
 	}
 
@@ -201,4 +201,39 @@ public class MarshallingWorker extends Indexer {
 	public static Int8Array remapEntry2(ArrayBuffer entry) {
 		return RemapWorker.remapEntry2(entry);
 	}
+
+	@JSExport
+	public static void clearRemapperState2() {
+		RemapWorker.clearRemapperState2();
 	}
+
+	@JSExport
+	public static void index(ArrayBuffer arrayBuffer) {
+		Indexer.index(arrayBuffer);
+	}
+
+	@JSExport
+	public static String[] getReference(String key) {
+		return Indexer.getReference(key);
+	}
+
+	@JSExport
+	public static int getReferenceSize() {
+		return Indexer.getReferenceSize();
+	}
+
+	@JSExport
+	public static String getBytecode(ArrayBuffer[] classBuffers) {
+		return Indexer.getBytecode(classBuffers);
+	}
+
+	@JSExport
+	public static String[] getMemberData() {
+		return Indexer.getMemberData();
+	}
+
+	@JSExport
+	public static String[] getClassData() {
+		return Indexer.getClassData();
+	}
+}

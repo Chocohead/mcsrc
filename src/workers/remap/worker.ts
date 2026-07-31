@@ -1,12 +1,49 @@
 import * as Comlink from "comlink";
 import { load } from "../../../java/build/generated/teavm/wasm-gc/java.wasm-runtime.js";
 import indexerWasm from "../../../java/build/generated/teavm/wasm-gc/java.wasm?url";
-import { openJar } from "../../utils/Jar";
-import type { ClassFilePath } from "../../utils/Names";
+import { openJar, type Jar } from "../../utils/Jar";
+import type { ClassFilePath, ClassName } from "../../utils/Names";
 import { crc32 } from "./crc32";
 import type { ZipEntryData } from "./zip";
 
 const COMPRESS_REMAPPED_CLASSES = false;
+
+export interface IndexedClassMember {
+    readonly method: boolean;
+    readonly name: String;
+    readonly desc: String;
+    readonly accessFlags: number;
+}
+
+export interface IndexedClassInstance {
+    readonly className: ClassName[];
+    readonly superName: ClassName;
+    readonly interfaces: ClassName[];
+    readonly accessFlags: number;
+    readonly members: IndexedClassMember[];
+}
+
+export interface ClassMember {
+    readonly owner: ClassInstance;
+    readonly method: boolean;
+    readonly name: string;
+    readonly desc: string;
+    readonly accessFlags: number;
+    newName: string;
+    readonly args: Map<number, string>;
+    readonly vars: Map<number, string>;
+}
+
+export interface ClassInstance {
+    readonly className: ClassName[];
+    readonly superName: ClassName[];
+    readonly interfaces: ClassName[];
+    readonly accessFlags: number;
+    readonly parents: Set<ClassInstance>;
+    readonly children: Set<ClassInstance>;
+    readonly members: Map<string, IndexedClassMember>;
+    newName: string;
+}
 
 export interface RemapClassJob {
     sourcePath: ClassFilePath;
@@ -30,11 +67,6 @@ export interface RemapWorkerStats {
     outputBytes: number;
 }
 
-export interface RemapIndex {
-    classData: string[];
-    memberData: string[];
-}
-
 export interface RemapWorkerBatchResult {
     entries: RemapWorkerResult[];
     stats: RemapWorkerStats;
@@ -42,6 +74,7 @@ export interface RemapWorkerBatchResult {
 
 export class RemapWorker {
     #remapper: Remapper | null = null;
+    #jar: Jar | null = null;
 
     async getRemapper(): Promise<Remapper> {
         if (!this.#remapper) {
@@ -57,79 +90,60 @@ export class RemapWorker {
         return this.#remapper;
     }
 
-    async getObfToDeobf(mappingsBlob: Blob): Promise<Map<string, string>> {
-        const remapper = await this.getRemapper();
-        remapper.loadMappings(await mappingsBlob.arrayBuffer());
-        return remapper.getObfToDeobf();
+    async setJar(name: string, blob: Blob) {
+        this.#jar = await openJar(name, blob);
     }
 
     dispose(): void {
-        this.#remapper?.clearRemapperState();
+        this.#jar = null;
+        this.#remapper?.clearRemapperState2();
         this.#remapper = null;
     }
 
     async buildRemapIndex(
-        jarName: string,
-        jarBlob: Blob,
         sourcePaths: ClassFilePath[],
-        stateBuffer: SharedArrayBuffer,
-        batchSize: number,
-        logger?: (count: number) => Promise<void> | void,
-    ): Promise<RemapIndex> {
-        const remapper = await this.getRemapper();
-        const jar = await openJar(jarName, jarBlob);
-        const state = new Uint32Array(stateBuffer);
-        const logPromises: Promise<void>[] = [];
-
-        remapper.clearIndex();
-
-        while (true) {
-            const start = Atomics.add(state, 0, batchSize);
-            if (start >= sourcePaths.length) break;
-
-            let completed = 0;
-            const end = Math.min(start + batchSize, sourcePaths.length);
-
-            for (let i = start; i < end; i++) {
-                const sourcePath = sourcePaths[i];
-                const entry = jar.entries[sourcePath];
-
-                if (!entry) {
-                    console.warn(`Class entry not found during remap index: ${sourcePath}`);
-                    completed++;
-                    continue;
-                }
-
-                remapper.indexRemapData(toArrayBuffer(await entry.bytes()));
-                completed++;
-            }
-
-            if (logger && completed > 0) {
-                logPromises.push(Promise.resolve(logger(completed)));
-            }
+    ): Promise<IndexedClassInstance[]> {
+        if (!this.#jar) {
+            throw new Error("Jar not set in worker");
         }
+        const jar = this.#jar; // Capture for closure
+        const remapper = await this.getRemapper();
 
-        await Promise.all(logPromises);
+        return Promise.all(sourcePaths.map(async (sourcePath) => {
+            const entry = jar.entries[sourcePath];
 
-        const index = {
-            classData: remapper.getClassData(),
-            memberData: remapper.getMemberData(),
-        };
+            if (!entry) {
+                throw new Error(`Class entry not found: ${sourcePath}`);
+            }
 
-        remapper.clearIndex();
-        return index;
+            return remapper.index2(toArrayBuffer(await entry.bytes()));
+        }));
+    }
+
+    async propagateMappings(
+        classes: IndexedClassInstance[],
+        mappingsBlob: Blob,
+    ): Promise<Map<ClassName, ClassInstance>> {
+        const remapper = await this.getRemapper();
+        const out = remapper.loadMappings2(classes, await mappingsBlob.arrayBuffer());
+        await this.loadMappings(out);
+        return out;
+    }
+
+    async loadMappings(
+        mappings: Map<ClassName, ClassInstance>,
+    ) {
+        const remapper = await this.getRemapper();
+        return remapper.receiveClasses(mappings);
     }
 
     async remapClasses(
-        jarName: string,
-        jarBlob: Blob,
-        mappingsBlob: Blob,
-        remapIndex: RemapIndex,
         jobs: RemapClassJob[],
-        stateBuffer: SharedArrayBuffer,
-        batchSize: number,
-        logger?: (count: number) => Promise<void> | void,
     ): Promise<RemapWorkerBatchResult> {
+        if (!this.#jar) {
+            throw new Error("Jar not set in worker");
+        }
+        const jar = this.#jar; // Capture for closure
         const remapper = await this.getRemapper();
         const stats: RemapWorkerStats = {
             classes: 0,
@@ -145,82 +159,48 @@ export class RemapWorker {
             outputBytes: 0,
         };
 
-        try {
-            let time = performance.now();
-            remapper.loadMappings(await mappingsBlob.arrayBuffer());
-            remapper.loadRemapIndex(remapIndex.classData, remapIndex.memberData);
-            remapIndex.classData.length = 0;
-            remapIndex.memberData.length = 0;
-            stats.loadMappingsMs = performance.now() - time;
+        const results: RemapWorkerResult[] = await Promise.all(jobs.map(async (job) => {
+            const entry = jar.entries[job.sourcePath];
 
-            time = performance.now();
-            const jar = await openJar(jarName, jarBlob);
-            stats.openJarMs = performance.now() - time;
-
-            const state = new Uint32Array(stateBuffer);
-            const results: RemapWorkerResult[] = [];
-            const logPromises: Promise<void>[] = [];
-
-            while (true) {
-                const start = Atomics.add(state, 0, batchSize);
-                if (start >= jobs.length) break;
-
-                let completed = 0;
-                const end = Math.min(start + batchSize, jobs.length);
-
-                for (let i = start; i < end; i++) {
-                    const job = jobs[i];
-                    const entry = jar.entries[job.sourcePath];
-                    if (!entry) {
-                        console.warn(`Class entry not found during remap: ${job.sourcePath}`);
-                        completed++;
-                        continue;
-                    }
-
-                    time = performance.now();
-                    const classBytes = await entry.bytes();
-                    stats.readMs += performance.now() - time;
-
-                    time = performance.now();
-                    const remappedBytes = toUint8Array(remapper.remapEntry(toArrayBuffer(classBytes)));
-                    stats.remapMs += performance.now() - time;
-
-                    time = performance.now();
-                    const classCrc32 = crc32(remappedBytes);
-                    stats.crcMs += performance.now() - time;
-
-                    time = performance.now();
-                    const outputBytes = await encodeClass(remappedBytes);
-                    stats.compressMs += performance.now() - time;
-
-                    results.push({
-                        name: job.targetPath,
-                        bytes: outputBytes.bytes,
-                        crc32: classCrc32,
-                        uncompressedSize: remappedBytes.length,
-                        compressionMethod: outputBytes.compressionMethod,
-                    });
-                    stats.classes++;
-                    stats.uncompressedBytes += remappedBytes.length;
-                    stats.outputBytes += outputBytes.bytes.length;
-                    if (outputBytes.compressionMethod === 8) {
-                        stats.compressedClasses++;
-                    } else {
-                        stats.storedClasses++;
-                    }
-                    completed++;
-                }
-
-                if (logger && completed > 0) {
-                    logPromises.push(Promise.resolve(logger(completed)));
-                }
+            if (!entry) {
+                throw new Error(`Class entry not found: ${job}`);
             }
 
-            await Promise.all(logPromises);
-            return { entries: results, stats };
-        } finally {
-            remapper.clearRemapperState();
-        }
+            let time = performance.now();
+            const classBytes = await entry.bytes();
+            stats.readMs += performance.now() - time;
+
+            time = performance.now();
+            const remappedBytes = toUint8Array(remapper.remapEntry2(toArrayBuffer(classBytes)));
+            stats.remapMs += performance.now() - time;
+
+            time = performance.now();
+            const classCrc32 = crc32(remappedBytes);
+            stats.crcMs += performance.now() - time;
+
+            time = performance.now();
+            const outputBytes = await encodeClass(remappedBytes);
+            stats.compressMs += performance.now() - time;
+
+            const out = {
+                name: job.targetPath,
+                bytes: outputBytes.bytes,
+                crc32: classCrc32,
+                uncompressedSize: remappedBytes.length,
+                compressionMethod: outputBytes.compressionMethod,
+            };
+            stats.classes++;
+            stats.uncompressedBytes += remappedBytes.length;
+            stats.outputBytes += outputBytes.bytes.length;
+            if (outputBytes.compressionMethod === 8) {
+                stats.compressedClasses++;
+            } else {
+                stats.storedClasses++;
+            }
+            return out;
+        }));
+
+        return { entries: results, stats };
     }
 }
 
@@ -255,16 +235,11 @@ function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
 }
 
 interface Remapper {
-    index(data: ArrayBufferLike): void;
-    indexRemapData(data: ArrayBufferLike): void;
-    loadMappings(data: ArrayBufferLike): void;
-    clearIndex(): void;
-    clearRemapperState(): void;
-    remapEntry(classData: ArrayBufferLike): Int8Array;
-    getObfToDeobf(): Map<string, string>;
-    getClassData(): string[];
-    getMemberData(): string[];
-    loadRemapIndex(classData: string[], memberData: string[]): void;
+    index2(data: ArrayBufferLike): IndexedClassInstance;
+    loadMappings2(indexedClasses: IndexedClassInstance[], mappings: ArrayBufferLike): Map<ClassName, ClassInstance>;
+    receiveClasses(classes: Map<ClassName, ClassInstance>): void;
+    remapEntry2(classData: ArrayBufferLike): Int8Array;
+    clearRemapperState2(): void;
 }
 
 Comlink.expose(new RemapWorker());

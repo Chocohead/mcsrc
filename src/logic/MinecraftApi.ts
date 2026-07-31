@@ -3,6 +3,7 @@ import { agreedEula } from "./Settings";
 import { openJar, type Jar } from "../utils/Jar";
 import { selectedMinecraftVersion } from "./State";
 import { remapMinecraftJar } from "../workers/remap/client";
+import hardCodedMappings from '../../comparisons/26.2 mappings.tiny?raw'; //FIXME: Don't be hardcoded
 
 import EXPERIMENTAL_VERSIONS from "./experimental_versions.json";
 
@@ -10,7 +11,7 @@ const CACHE_NAME = 'mcsrc-v1';
 const VERSIONS_URL = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
 
 interface VersionsList {
-    versions: VersionListEntry[]
+    versions: VersionListEntry[];
 }
 
 interface VersionListEntry {
@@ -124,7 +125,7 @@ export function isUnobfuscated(version: VersionListEntry): boolean {
 }
 
 function isSupported(version: VersionListEntry): boolean {
-    if(isUnobfuscated(version)) return true;
+    if (isUnobfuscated(version)) return true;
     // This version was released after the first snapshot with official mappings,
     // but its mappings were never published.
     if (version.id === '1.14_combat-3') return false;
@@ -247,6 +248,11 @@ async function prepareMinecraftJarBlob(
     mappingsBlob: Blob | null,
     mappings?: VersionDownload,
 ): Promise<{ blob: Blob, remapped: boolean; }> {
+    mappingsBlob = new Blob([hardCodedMappings], { type: 'text/plain' });
+    mappings = {
+        url: 'https://repo.codemc.io/repository/relativitymc/org/relativitymc/modern-yarn/26.2%2Bbuild.1/modern-yarn-26.2%2Bbuild.1-mergedv2.jar', //FIXME: Don't be hardcoded
+    };
+
     if (!mappings || !mappingsBlob) {
         return { blob: rawBlob, remapped: false };
     }

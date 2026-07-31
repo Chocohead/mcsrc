@@ -32,7 +32,7 @@ public class Plugin implements TeaVMPlugin {
 							if (instruction instanceof InvokeInstruction invoke) {
 								if (OLD_METHOD.equals(invoke.getMethod())) {
 									invoke.setMethod(NEW_METHOD); 
-		                            invoke.setReceiver(null);
+									invoke.setReceiver(null);
 								}
 							}
 						}

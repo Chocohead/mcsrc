@@ -91,13 +91,13 @@ public interface ClassInstance extends SimpleClassInstance {
 						queue.addLast(parent);
 					}
 				}
-			} while ((cls = queue.pollFirst()) != null);
+			} while (!Utils.isNullish(cls = queue.pollFirst()));
 		} else {
 			do {
 				cls = cls.getSuperClass();
 
 				if (cls == this) return true;
-			} while (cls != null);
+			} while (!Utils.isNullish(cls));
 		}
 
 		return false;
@@ -121,10 +121,10 @@ interface RemappingClassInstance extends ClassInstance {
 
 	default ClassMember resolve(boolean method, String id) {
 		ClassMember member = getMembers().get(JSString.valueOf(id));
-		if (member != null) return member;
+		if (!Utils.isNullish(member)) return member;
 
 		member = getResolvedMembers().get(JSString.valueOf(id));
-		if (member == null) {
+		if (Utils.isNullish(member)) {
 			member = method ? resolveMethod(id) : resolveField(id);
 			getResolvedMembers().set(JSString.valueOf(id), member);
 		}
@@ -144,28 +144,28 @@ interface RemappingClassInstance extends ClassInstance {
 				for (ClassInstance parent : cls.getParents().values().iter()) {
 					if (parent.isInterface() && visited.add(parent)) {
 						ClassMember ret = parent.getMembers().get(JSString.valueOf(id));
-						if (ret != null) return ret;
+						if (!Utils.isNullish(ret)) return ret;
 
 						queue.addLast(parent);
 					}
 				}
-			} while ((cls = queue.pollLast()) != null);
+			} while (!Utils.isNullish(cls = queue.pollLast()));
 
 			cls = context;
 			context = cls.getSuperClass();
-			if (context == null) break;
+			if (Utils.isNullish(context)) break;
 
 			ClassMember parentMember = context.getMembers().get(JSString.valueOf(id));
-			if (parentMember != null) return parentMember;
+			if (!Utils.isNullish(parentMember)) return parentMember;
 		}
 
 		return MISSING;
 	}
 
 	private ClassMember resolveMethod(String id) {
-		for (ClassInstance cls = getSuperClass(); cls != null; cls = cls.getSuperClass()) {
+		for (ClassInstance cls = getSuperClass(); !Utils.isNullish(cls); cls = cls.getSuperClass()) {
 			ClassMember parentMember = cls.getMembers().get(JSString.valueOf(id));
-			if (parentMember != null) return parentMember;
+			if (!Utils.isNullish(parentMember)) return parentMember;
 		}
 
 		Deque<ClassInstance> queue = new ArrayDeque<>();
@@ -182,7 +182,7 @@ interface RemappingClassInstance extends ClassInstance {
 				if (parent.isInterface()) {
 					ClassMember parentMember = parent.getMembers().get(JSString.valueOf(id));
 
-					if (parentMember != null && parentMember.isVirtual()) {
+					if (!Utils.isNullish(parentMember) && parentMember.isVirtual()) {
 						if (!parentMember.isAbstract()) hasNonAbstract = true;
 						matchedMethods.add(parentMember);
 						continue;
@@ -191,7 +191,7 @@ interface RemappingClassInstance extends ClassInstance {
 
 				queue.addLast(parent);
 			}
-		} while ((cls = queue.pollFirst()) != null);
+		} while (!Utils.isNullish(cls = queue.pollFirst()));
 
 		if (hasNonAbstract && matchedMethods.size() > 1) {
 			on: for (ClassMember member : matchedMethods) {

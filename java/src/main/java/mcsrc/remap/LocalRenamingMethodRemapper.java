@@ -4,7 +4,7 @@ import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.List;
 
-import javax.lang.model.SourceVersion;
+//import javax.lang.model.SourceVersion;
 
 import org.objectweb.asm.AnnotationVisitor;
 import org.objectweb.asm.Attribute;
@@ -26,9 +26,9 @@ public class LocalRenamingMethodRemapper extends MethodRemapper {
 		}
 	}
 	private static final String[] SINGLE_CHAR_STRINGS = {
-            "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m",
-            "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"
-    };
+			"a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m",
+			"n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"
+	};
 	private final List<ParameterNode> parameters = new ArrayList<>(5);
 	private final List<LocalVariable> localVariables;
 	private final String className, methodName, methodDesc;
@@ -314,44 +314,44 @@ public class LocalRenamingMethodRemapper extends MethodRemapper {
 		boolean incrementLetter = true;
 		String varName;
 		switch (type.charAt(0)) {
-	        case 'B' -> varName = "b";
-	        case 'C' -> varName = "c";
-	        case 'D' -> varName = "d";
-	        case 'F' -> varName = "f";
-	        case 'I' -> varName = "i";
-	        case 'J' -> varName = "l";
-	        case 'S' -> varName = "s";
-	        case 'Z' -> {
-	            varName = "bl";
-	            incrementLetter = false;
-	        }
-	        case 'L' -> {
-	            int start = type.lastIndexOf('/') + 1;
-	            int startDollar = type.lastIndexOf('$') + 1;
+			case 'B' -> varName = "b";
+			case 'C' -> varName = "c";
+			case 'D' -> varName = "d";
+			case 'F' -> varName = "f";
+			case 'I' -> varName = "i";
+			case 'J' -> varName = "l";
+			case 'S' -> varName = "s";
+			case 'Z' -> {
+				varName = "bl";
+				incrementLetter = false;
+			}
+			case 'L' -> {
+				int start = type.lastIndexOf('/') + 1;
+				int startDollar = type.lastIndexOf('$') + 1;
 	
-	            if (startDollar > start && startDollar < type.length() - 1) {
-	                start = startDollar;
-	            } else if (start == 0) {
-	                start = 1;
-	            }
+				if (startDollar > start && startDollar < type.length() - 1) {
+					start = startDollar;
+				} else if (start == 0) {
+					start = 1;
+				}
 	
-	            char first = type.charAt(start);
-	            char firstLc = Character.toLowerCase(first);
+				char first = type.charAt(start);
+				char firstLc = Character.toLowerCase(first);
 	
-	            if (first == firstLc) {
-	                varName = null;
-	            } else {
-	                varName = firstLc + type.substring(start + 1, type.length() - 1);
-	            }
+				if (first == firstLc) {
+					varName = null;
+				} else {
+					varName = firstLc + type.substring(start + 1, type.length() - 1);
+				}
 	
-	            if (!isValidJavaIdentifier(varName)) {
-	                varName = isArg ? "arg" : "lv";
-	            }
+				if (!isValidJavaIdentifier(varName)) {
+					varName = isArg ? "arg" : "lv";
+				}
 	
-	            incrementLetter = false;
-	        }
-	        default -> throw new IllegalStateException("Unexpected descriptor: " + type);
-	    }
+				incrementLetter = false;
+			}
+			default -> throw new IllegalStateException("Unexpected descriptor: " + type);
+		}
 
 		boolean hasPluralS = false;
 		if (plural) {

@@ -38,7 +38,7 @@ public interface JSIterator<T extends JSObject> extends JSObject {
 	@FunctionalInterface
 	@JSFunctor
 	public interface FindPredicate<T extends JSObject> extends JSObject {
-	    boolean test(T element, int index);
+		boolean test(T element, int index);
 	}
 
 	T find(FindPredicate<T> callback);

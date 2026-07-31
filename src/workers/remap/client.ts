@@ -1,8 +1,9 @@
 import * as Comlink from "comlink";
 import { openJar } from "../../utils/Jar";
-import { classNameFromClassFilePath, isClassFilePath, toClassFilePath } from "../../utils/Names";
+import { type ClassFilePath, classNameFromClassFilePath, isClassFilePath, toClassFilePath } from "../../utils/Names";
 import { writeZip } from "./zip";
 import type { RemapClassJob, RemapWorker, RemapWorkerResult, RemapWorkerStats } from "./worker";
+import WorkPool from "./marshaller";
 
 const batchSize = 8;
 const maxWorkers = 8;
@@ -28,57 +29,60 @@ export async function remapMinecraftJar(
     try {
         const jar = await openJar(version, jarBlob);
         const classMapStartTime = performance.now();
-        const obfToDeobf = await workers[0].c.getObfToDeobf(mappingsBlob);
         const classMapLoadMs = performance.now() - classMapStartTime;
         const classPaths = Object.keys(jar.entries).filter(isClassFilePath);
-        const jobs = createRemapJobs(classPaths, obfToDeobf);
 
-        if (jobs.length === 0) {
+        if (classPaths.length === 0) {
             return writeZip([]);
         }
 
         onProgress?.(0);
 
-        let indexed = 0;
-        const indexLogger = onProgress ? Comlink.proxy((count: number) => {
-            indexed += count;
-            onProgress(Math.round((indexed / classPaths.length) * 50));
-        }) : undefined;
-
-        let stateBuffer = new SharedArrayBuffer(Uint32Array.BYTES_PER_ELEMENT);
-        let state = new Uint32Array(stateBuffer);
-        state[0] = 0;
-
         const remapIndexStartTime = performance.now();
-        const remapIndexResults = await Promise.all(workers.map(worker =>
-            worker.c.buildRemapIndex(version, jarBlob, classPaths, stateBuffer, batchSize, indexLogger)
-        ));
-        const remapIndex = mergeRemapIndexes(remapIndexResults);
-        clearRemapIndexes(remapIndexResults);
+        await Promise.all(workers.map(worker => worker.c.setJar(version, jarBlob)));
+        let completion; {
+            let indexed = 0;
+            const pool = new WorkPool(workers, (worker, batch: ClassFilePath[]) => {
+                const index = worker.c.buildRemapIndex(batch);
+                if (onProgress) {
+                    indexed += batch.length;
+                    onProgress(Math.round((indexed / classPaths.length) * 50));
+                }
+                return index;
+            });
+            completion = pool.completion();
+            for (let slice = 0; slice < classPaths.length; slice += batchSize) {
+                pool.queue(classPaths.slice(slice, slice + batchSize));
+            }
+        }
+        const remapIndexResults = await Promise.all(await completion);
+        const remapIndex = await workers[0].c.propagateMappings(remapIndexResults.flat(), mappingsBlob);
+        await Promise.all(workers.slice(1).map(worker => worker.c.loadMappings(remapIndex)));
         const remapIndexMs = performance.now() - remapIndexStartTime;
 
         onProgress?.(50);
 
-        let remapped = 0;
-        const remapLogger = onProgress ? Comlink.proxy((count: number) => {
-            remapped += count;
-            onProgress(50 + Math.round((remapped / jobs.length) * 50));
-        }) : undefined;
-
-        stateBuffer = new SharedArrayBuffer(Uint32Array.BYTES_PER_ELEMENT);
-        state = new Uint32Array(stateBuffer);
-        state[0] = 0;
-
-        let workerResults;
-
-        try {
-            workerResults = await Promise.all(workers.map(worker =>
-                worker.c.remapClasses(version, jarBlob, mappingsBlob, remapIndex, jobs, stateBuffer, batchSize, remapLogger)
-            ));
-        } finally {
-            remapIndex.classData.length = 0;
-            remapIndex.memberData.length = 0;
+        {
+            let remapped = 0;
+            const pool = new WorkPool(workers, (worker, batch: RemapClassJob[]) => {
+                const result = worker.c.remapClasses(batch);
+                if (onProgress) {
+                    remapped += batch.length;
+                    onProgress(50 + Math.round((remapped / classPaths.length) * 50));
+                }
+                return result;
+            });
+            completion = pool.completion();
+            for (let slice = 0; slice < classPaths.length; slice += batchSize) {
+                pool.queue(classPaths.slice(slice, slice + batchSize).map(sourcePath => {
+                    const className = classNameFromClassFilePath(sourcePath);
+                    const mappedClassName = remapIndex.get(className)?.newName ?? className;
+                    const targetPath = toClassFilePath(mappedClassName);
+                    return { sourcePath, targetPath };
+                }));
+            }
         }
+        const workerResults = await Promise.all(await completion);
 
         const timings = mergeStats(workerResults.map(result => result.stats));
         const results = workerResults.flatMap(result => result.entries).sort((a, b) => a.name.localeCompare(b.name));
@@ -114,43 +118,6 @@ async function cleanupWorkers(workers: ReturnType<typeof createWorker>[]): Promi
             worker.w.terminate();
         }
     }));
-}
-
-function createRemapJobs(paths: string[], obfToDeobf: Map<string, string>): RemapClassJob[] {
-    const jobs: RemapClassJob[] = [];
-    const seenTargets = new Set<string>();
-
-    for (const path of paths) {
-        if (!isClassFilePath(path)) continue;
-
-        const className = classNameFromClassFilePath(path);
-        const mappedClassName = obfToDeobf.get(className) ?? className;
-        const targetPath = toClassFilePath(mappedClassName);
-
-        if (seenTargets.has(targetPath)) {
-            console.warn(`Skipping duplicate remapped class target: ${targetPath}`);
-            continue;
-        }
-
-        seenTargets.add(targetPath);
-        jobs.push({ sourcePath: path, targetPath });
-    }
-
-    return jobs;
-}
-
-function mergeRemapIndexes(indexes: { classData: string[], memberData: string[] }[]): { classData: string[], memberData: string[] } {
-    return {
-        classData: indexes.flatMap(index => index.classData),
-        memberData: indexes.flatMap(index => index.memberData),
-    };
-}
-
-function clearRemapIndexes(indexes: { classData: string[], memberData: string[] }[]): void {
-    for (const index of indexes) {
-        index.classData.length = 0;
-        index.memberData.length = 0;
-    }
 }
 
 function mergeStats(stats: RemapWorkerStats[]): RemapWorkerStats {
