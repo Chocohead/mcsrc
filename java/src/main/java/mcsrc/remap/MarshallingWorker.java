@@ -5,6 +5,8 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.Reader;
 import java.nio.charset.StandardCharsets;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
 import org.teavm.jso.JSExport;
 import org.teavm.jso.JSObject;
@@ -38,13 +40,28 @@ public class MarshallingWorker {
 		return name + ";;" + desc;
 	}
 
+	private static Reader readMappings(byte[] mappings) throws IOException {
+		if (mappings.length > 2 && mappings[0] == 'P' && mappings[1] == 'K') {
+			ZipInputStream zip = new ZipInputStream(new ByteArrayInputStream(mappings));
+
+			for (ZipEntry entry = zip.getNextEntry(); entry != null; entry = zip.getNextEntry()) {
+				if ("mappings/mappings.tiny".equals(entry.getName())) {
+					return new InputStreamReader(zip, StandardCharsets.UTF_8);
+				}
+			}
+
+			throw new IllegalArgumentException("Mappings do not contain mappings.tiny");
+		} else {
+			return new InputStreamReader(new ByteArrayInputStream(mappings), StandardCharsets.UTF_8);
+		}
+	}
+
 	@JSExport
 	public static JSMap<JSString, ClassInstance> loadMappings2(JSArray<IndexedClassInstance> indexedClasses, ArrayBuffer mappings) {
 		byte[] mappingsArray = new Int8Array(mappings).copyToJavaArray();
-		Reader mappingsReader = new InputStreamReader(new ByteArrayInputStream(mappingsArray), StandardCharsets.UTF_8);
 
 		var tree = new MemoryMappingTree();
-		try {
+		try (Reader mappingsReader = readMappings(mappingsArray)) {
 			Tiny2FileReader.read(mappingsReader, tree);
 		} catch (IOException e) {
 			throw new RuntimeException(e);

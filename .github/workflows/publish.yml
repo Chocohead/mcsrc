@@ -25,6 +25,7 @@ jobs:
       - run: ./gradlew build
         working-directory: java
       - run: npm ci
+      - run: npm run update-yarn
       - run: npm run build
       - name: Setup Pages
         uses: actions/configure-pages@v4

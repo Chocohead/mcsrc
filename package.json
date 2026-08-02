@@ -12,7 +12,8 @@
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:debug": "playwright test --debug",
     "lint": "oxlint --type-aware --deny-warnings",
-    "lint:fix": "oxlint --fix --type-aware --deny-warnings"
+    "lint:fix": "oxlint --fix --type-aware --deny-warnings",
+    "update-yarn": "node --import=extensionless/register update-yarn.ts"
   },
   "dependencies": {
     "@katana-project/zip": "^0.7.1",
@@ -35,6 +36,7 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
+    "extensionless": "^2.0.6",
     "globals": "^17.4.0",
     "oxlint": "^1.55.0",
     "oxlint-tsgolint": "^0.16.0",

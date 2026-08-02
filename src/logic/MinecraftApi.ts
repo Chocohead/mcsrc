@@ -3,7 +3,6 @@ import { agreedEula } from "./Settings";
 import { openJar, type Jar } from "../utils/Jar";
 import { selectedMinecraftVersion } from "./State";
 import { remapMinecraftJar } from "../workers/remap/client";
-import hardCodedMappings from '../../comparisons/26.2 mappings.tiny?raw'; //FIXME: Don't be hardcoded
 
 import EXPERIMENTAL_VERSIONS from "./experimental_versions.json";
 
@@ -48,6 +47,15 @@ export interface MinecraftJarMetadata {
     clientSha1?: string;
     mappingsSha1?: string;
     remapped: boolean;
+}
+
+interface FabricMetaMappings {
+    gameVersion: string;
+    separator: string;
+    build: number;
+    maven: string;
+    version: string;
+    stable: boolean;
 }
 
 export const minecraftVersions = agreedEula.observable.pipe(
@@ -125,14 +133,15 @@ export function isUnobfuscated(version: VersionListEntry): boolean {
 }
 
 function isSupported(version: VersionListEntry): boolean {
-    if (isUnobfuscated(version)) return true;
-    // This version was released after the first snapshot with official mappings,
-    // but its mappings were never published.
-    if (version.id === '1.14_combat-3') return false;
-    // Versions starting from 19w36a (released on 2019-09-04) have official mappings available
-    if (new Date(version.releaseTime) >= new Date("2019-09-04")) return true;
-    // Official mappings were backported to 1.14.4
-    if (version.id === "1.14.4") return true;
+    // Don't want to use the unobfuscated versions given we're remapping
+    if (isUnobfuscated(version)) return version.type !== 'unobfuscated';
+    // Versions starting from 20w10a (released on 2020-03-04) have mergedv2 mappings available
+    if (new Date(version.releaseTime) >= new Date("2020-03-04")) return true;
+    // Versions starting from 19w44a (released on 2019-10-30) have v2 mappings available
+    // if (new Date(version.releaseTime) >= new Date("2019-10-20")) return true; //TODO: Merging v2 mappings
+    // Versions starting from 18w49a (released on 2018-12-05) have broken v2 mappings
+    // if (new Date(version.releaseTime) >= new Date("2018-12-05")) return true; //TODO: v1 mappings
+    // There are also mappings for 18w43a, but apparently not on the Fabric Maven
     return false;
 }
 
@@ -207,11 +216,40 @@ async function consumeResponseWithProgress(response: Response, onProgress?: (per
     return new Blob(chunks);
 }
 
+async function findMappings(version: VersionListEntry): Promise<VersionDownload | undefined> {
+    const releaseTime = new Date(version.releaseTime);
+    if (releaseTime >= new Date('2025-12-16')) {
+        return {//Modern-Yarn
+            url: new URL(`../../yarn/${version.id}.tiny`, import.meta.url).href,
+        };
+    } else if (!isUnobfuscated(version)) {
+        const response = await fetch(`https://meta.fabricmc.net/v2/versions/yarn/${version.id}`);
+        if (!response.ok) throw new Error(`Bad status from Fabric Meta: ${response.status}`);
+        const versions: FabricMetaMappings[] = await response.json();
+        const { version: mappingVersion } = versions[0];
+        if (releaseTime >= new Date("2020-03-04")) {
+            return {//Yarn using mergedv2
+                url: `https://maven.fabricmc.net/net/fabricmc/yarn/${mappingVersion}/yarn-${mappingVersion}-mergedv2.jar`,
+            };
+        } else if (releaseTime >= new Date("2019-10-20")) {
+            return {//Yarn using v2
+                url: `https://maven.fabricmc.net/net/fabricmc/yarn/${mappingVersion}/yarn-${mappingVersion}-v2.jar`,
+            };
+        } else {
+            return {//Yarn using v1
+                url: `https://maven.fabricmc.net/net/fabricmc/yarn/${mappingVersion}/yarn-${mappingVersion}.jar`,
+            };
+        }
+    } else {
+        return undefined; //Don't know
+    }
+}
+
 async function downloadMinecraftJar(version: VersionListEntry, progress: BehaviorSubject<number | undefined>): Promise<MinecraftJar> {
     console.log(`Downloading Minecraft jar for version: ${version.id}`);
     const versionManifest = await fetchVersionManifest(version);
     const client = versionManifest.downloads.client;
-    const mappings = versionManifest.downloads.client_mappings;
+    const mappings = await findMappings(version);
 
     let rawBlob: Blob;
     let mappingsBlob: Blob | null;
@@ -248,11 +286,6 @@ async function prepareMinecraftJarBlob(
     mappingsBlob: Blob | null,
     mappings?: VersionDownload,
 ): Promise<{ blob: Blob, remapped: boolean; }> {
-    mappingsBlob = new Blob([hardCodedMappings], { type: 'text/plain' });
-    mappings = {
-        url: 'https://repo.codemc.io/repository/relativitymc/org/relativitymc/modern-yarn/26.2%2Bbuild.1/modern-yarn-26.2%2Bbuild.1-mergedv2.jar', //FIXME: Don't be hardcoded
-    };
-
     if (!mappings || !mappingsBlob) {
         return { blob: rawBlob, remapped: false };
     }
