@@ -235,10 +235,11 @@ public class LocalRenamingMethodRemapper extends MethodRemapper {
 			if (!isStatic && lv.index == 0) {
 				name = "this";
 			} else if (lv.index < argLvSize) {
+				int asmIndex = getAsmIndex(lv.index);
 				if (parameters.size() == argTypes.length) {//Already done the method args
-					name = parameters.get(i).name;
+					name = parameters.get(asmIndex).name;
 				} else {//Need to do the method args
-					name = ((FullRemapper) remapper).mapMethodArg(className, methodName, methodDesc, getLvIndex(i), lv.name);
+					name = ((FullRemapper) remapper).mapMethodArg(className, methodName, methodDesc, lv.index, lv.name);
 
 					if (isValidLvName(name)) {
 						localNameCounts.putIfAbsent(name, 1);
@@ -246,7 +247,7 @@ public class LocalRenamingMethodRemapper extends MethodRemapper {
 						name = getNameFromType(remapper.mapDesc(argTypes[i].getDescriptor()), true);
 					}
 				}
-				argPresent[getAsmIndex(lv.index)] = true;
+				argPresent[asmIndex] = true;
 			} else {
 				int startOpIdx = labelOpIndexes.getInt(lv.start);
 				name = ((FullRemapper) remapper).mapMethodVar(className, methodName, methodDesc, lv.index, startOpIdx, i, lv.name);
@@ -264,7 +265,12 @@ public class LocalRenamingMethodRemapper extends MethodRemapper {
 		for (int i = 0; i < argTypes.length; i++) {
 			if (!argPresent[i]) {
 				String desc = argTypes[i].getDescriptor();
-				String name = getNameFromType(remapper.mapDesc(desc), true);
+				String name;
+				if (parameters.size() == argTypes.length) {
+					name = parameters.get(i).name;
+				} else {
+					name = getNameFromType(remapper.mapDesc(desc), true);
+				}
 				localVariables.add(new LocalVariable(name, desc, null, start, end, getLvIndex(i)));
 			}
 		}
@@ -364,7 +370,7 @@ public class LocalRenamingMethodRemapper extends MethodRemapper {
 		}
 
 		if (incrementLetter) {
-			for (int index = -1; localNameCounts.putIfAbsent(varName, 1) != 0 || isJavaKeyword(varName);) {
+			for (int index = -1; localNameCounts.putIfAbsent(varName, 1) != -1 || isJavaKeyword(varName);) {
 				if (index < 0) index = getNameIndex(varName, hasPluralS);
 
 				varName = getIndexName(++index, plural);
@@ -385,7 +391,7 @@ public class LocalRenamingMethodRemapper extends MethodRemapper {
 			varName = baseVarName + count;
 		}
 
-		while (localNameCounts.putIfAbsent(varName, 1) != 0) {
+		while (localNameCounts.putIfAbsent(varName, 1) != -1) {
 			varName = baseVarName + count++;
 		}
 

@@ -1,5 +1,7 @@
 package mcsrc.remap;
 
+import java.util.List;
+
 import org.teavm.model.BasicBlock;
 import org.teavm.model.ClassHolder;
 import org.teavm.model.ClassHolderTransformer;
@@ -9,6 +11,7 @@ import org.teavm.model.MethodHolder;
 import org.teavm.model.MethodReference;
 import org.teavm.model.Program;
 import org.teavm.model.ValueType;
+import org.teavm.model.Variable;
 import org.teavm.model.instructions.InvokeInstruction;
 import org.teavm.vm.spi.TeaVMHost;
 import org.teavm.vm.spi.TeaVMPlugin;
@@ -31,8 +34,13 @@ public class Plugin implements TeaVMPlugin {
 						for (Instruction instruction : block) {
 							if (instruction instanceof InvokeInstruction invoke) {
 								if (OLD_METHOD.equals(invoke.getMethod())) {
-									invoke.setMethod(NEW_METHOD); 
+									invoke.setMethod(NEW_METHOD);
 									invoke.setReceiver(null);
+
+									List<? extends Variable> arguments = invoke.getArguments();
+									invoke.setArguments(new Variable[] {
+										arguments.get(1), arguments.get(2), arguments.get(0),
+									});
 								}
 							}
 						}
