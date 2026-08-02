@@ -22,7 +22,7 @@ public class Utils {
 	@JSBody(params = {"array", "callback"}, script = "return array.map(callback);")
 	public native static <T extends JSObject, R extends JSObject> JSArray<R> map(JSArray<T> array, JSArrayFunction<T, R> callback);
 
-	@JSBody(params = {"map", "transformer"}, script = "return new Map(map.entries().map(([key, value]) => [key, transformer(value)]));")
+	@JSBody(params = {"map", "transformer"}, script = "return new Map(map.entries().map(entry => [entry[0], transformer(entry[1])]));")
 	public native static <K extends JSObject, VT extends JSObject, VR extends JSObject>
 		JSMap<K, VR> mapValues(JSMap<K, VT> map, JSMapping<VT, VR> transformer);
 
