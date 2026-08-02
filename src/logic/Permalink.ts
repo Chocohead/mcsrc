@@ -77,20 +77,9 @@ export const parsePathToState = (path: string): State | null => {
 };
 
 export const getInitialState = (): State => {
-    const pathname = window.location.pathname;
     const hash = window.location.hash;
 
-    const newStyle = pathname !== '/' && pathname !== '';
-
-    // Use pathname if it's not just "/" (new style), otherwise use hash (old style)
-    let path = newStyle
-        ? pathname.slice(1) // Remove leading /
-        : (hash.startsWith('#/') ? hash.slice(2) : (hash.startsWith('#') ? hash.slice(1) : ''));
-
-    // For new style (pathname-based), append hash if it contains line number
-    if (newStyle && hash.startsWith('#L')) {
-        path += hash;
-    }
+    let path = hash.startsWith('#/') ? hash.slice(2) : (hash.startsWith('#') ? hash.slice(1) : '');
 
     try {
         const state = parsePathToState(path);
@@ -143,7 +132,7 @@ if (typeof window !== "undefined") {
                 return;
             }
 
-            let url = '/1/';
+            let url = '#1/';
 
             if (diffView) {
                 url += `diff/${diffLeftMinecraftVersion}/${minecraftVersion}`;
