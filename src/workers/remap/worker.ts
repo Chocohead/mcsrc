@@ -78,13 +78,13 @@ export class RemapWorker {
 
     async getRemapper(): Promise<Remapper> {
         if (!this.#remapper) {
-            try {
+            /*try {
                 const teavm = await load(indexerWasm);
                 this.#remapper = teavm.exports as Remapper;
             } catch (e) {
-                console.warn("Failed to load WASM module (non-compliant browser?), falling back to JS implementation", e);
+                console.warn("Failed to load WASM module (non-compliant browser?), falling back to JS implementation", e);*/
                 this.#remapper = await import("../../../java/build/generated/teavm/js/java.js") as unknown as Remapper;
-            }
+            // }
         }
 
         return this.#remapper;
