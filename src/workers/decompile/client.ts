@@ -50,11 +50,7 @@ export async function setRuntime(preferWasm: boolean) {
 }
 
 export async function setOptions(options: vf.Options) {
-    const sab = new SharedArrayBuffer(Uint32Array.BYTES_PER_ELEMENT);
-    const state = new Uint32Array(sab);
-    state[0] = 0;
-
-    await Promise.all(workers.map(w => w.setOptions(options, sab)));
+    await Promise.all(workers.map((w, i) => w.setOptions(options, i === 0)));
 }
 
 export async function deleteCache(): Promise<number> {
@@ -74,11 +70,8 @@ export type DecompileEntireJarTask = {
 };
 
 export function decompileEntireJar(jar: Jar, options?: DecompileEntireJarOptions): DecompileEntireJarTask {
-    const sab = new SharedArrayBuffer(Uint32Array.BYTES_PER_ELEMENT);
-    const state = new Uint32Array(sab);
-    state[0] = 0;
-
     const dJar = new DecompileJar(jar);
+    let currentClassIndex = 0;
     return {
         async start() {
             try {
@@ -88,6 +81,8 @@ export function decompileEntireJar(jar: Jar, options?: DecompileEntireJarOptions
                 const optThreads = Math.min(options?.threads ?? MAX_THREADS, MAX_THREADS);
                 const optSplits = options?.splits ?? 100;
 
+                const classIndexProvider = Comlink.proxy(async () => currentClassIndex += optSplits);
+
                 let current = 0;
                 const optLogger = options?.logger ? Comlink.proxy((i: number) => {
                     options.logger!(classNames[i], ++current, classNames.length);
@@ -96,7 +91,7 @@ export function decompileEntireJar(jar: Jar, options?: DecompileEntireJarOptions
                 await ensureWorkers(optThreads);
                 const result = await Promise.all((workers
                     .slice(0, optThreads))
-                    .map(w => w.decompileMany(jar.name, jar.blob, classNames, sab, optSplits, optLogger)));
+                    .map(w => w.decompileMany(jar.name, jar.blob, classNames, classIndexProvider, optSplits, optLogger)));
                 const total = result.reduce((acc, n) => acc + n, 0);
                 return total;
             } finally {
@@ -105,7 +100,7 @@ export function decompileEntireJar(jar: Jar, options?: DecompileEntireJarOptions
             }
         },
         stop() {
-            Atomics.store(state, 0, dJar.classes.length);
+            currentClassIndex = dJar.classes.length;
         },
     };
 }

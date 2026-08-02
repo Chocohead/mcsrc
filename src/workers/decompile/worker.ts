@@ -52,12 +52,11 @@ export class DecompileWorker {
         return this.#options;
     }
 
-    setOptions = (options: vf.Options, sab: SharedArrayBuffer) => this.schedule(async () => {
+    setOptions = (options: vf.Options, updateDB: boolean) => this.schedule(async () => {
         this.#options = undefined;
 
         // Only set the DB on one worker, should be propagated everywhere else.
-        const state = new Uint32Array(sab);
-        if (Atomics.add(state, 0, 1) >= 1) return;
+        if (!updateDB) return;
 
         const dbOptions = await this.db.options.toArray();
 
@@ -90,11 +89,10 @@ export class DecompileWorker {
         jarName: string,
         jarBlob: Blob,
         classNames: ClassName[],
-        sab: SharedArrayBuffer,
+        nextClasses: () => Promise<number>,
         splits: number,
         logger?: (index: number) => Promise<void> | void,
     ): Promise<number> => this.schedule(async () => {
-        const state = new Uint32Array(sab);
         const jar = new DecompileJar(await openJar(jarName, jarBlob));
 
         let logPromises: Promise<void>[] = [];
@@ -110,7 +108,7 @@ export class DecompileWorker {
 
         let count = 0;
         while (true) {
-            const i = Atomics.add(state, 0, splits);
+            const i = await nextClasses();
             if (i >= classNames.length) break;
 
             const targetClassNames: ClassName[] = [];
