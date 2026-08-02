@@ -115,7 +115,6 @@ if (typeof window !== "undefined") {
             if (!file && !diffView) {
                 document.title = "mcsrc.dev";
                 window.location.hash = '';
-                window.history.replaceState({}, '', '/');
                 return;
             }
 
@@ -128,11 +127,10 @@ if (typeof window !== "undefined") {
 
             if (!supported) {
                 window.location.hash = '';
-                window.history.replaceState({}, '', '/');
                 return;
             }
 
-            let url = '#1/';
+            let url = '1/';
 
             if (diffView) {
                 url += `diff/${diffLeftMinecraftVersion}/${minecraftVersion}`;
@@ -152,7 +150,7 @@ if (typeof window !== "undefined") {
                 }
             }
 
-            window.history.replaceState({}, '', url);
+            window.location.hash = url;
         });
     });
 }
