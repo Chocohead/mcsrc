@@ -1,4 +1,6 @@
-# [https://mcsrc.dev/](https://mcsrc.dev/)
+# [https://chocohead.github.io/mcsrc/](https://chocohead.github.io/mcsrc/)
+
+A fork of [mcsrc](https://mcsrc.dev/) which uses Yarn rather than Mojang's mappings.
 
 Note: This project is not affiliated with Mojang or Microsoft in any way. It does NOT redistribute any Minecraft code or compiled bytecode. The minecraft jar is downloaded directly from Mojang's servers to your browser.
 
@@ -13,6 +15,7 @@ Then you can run the web app:
 
 - `nvm use` (or ensure you have the correct Node version, see `.nvmrc`)
 - `npm install`
+- `npm run update-yarn` (if using Minecraft versions after 1.21.11)
 - `npm run dev`
 
 ## Credits
